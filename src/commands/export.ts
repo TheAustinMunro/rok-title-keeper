@@ -17,15 +17,11 @@ export const exportCommand = {
   execute: async ({ interaction, prisma }: CommandExecutionContext) => {
     await interaction.deferReply();
 
-    const governorsDkps = await prisma.governorDKP.findMany({
-      include: {
-        governor: true,
-      },
+    const governors = await prisma.governor.findMany({
+      orderBy: {
+        power: 'desc'
+      }
     });
-
-    const dkps = governorsDkps
-      .map(calculateDkp)
-      .map(({ powerDifference, percentageTowardsGoal, ...dkp }) => dkp);
 
     const HEADER_ROW = [
       {
@@ -41,44 +37,52 @@ export const exportCommand = {
         fontWeight: "bold",
       },
       {
-        value: "Tier 4 kp difference",
+        value: "T1 Kills",
         fontWeight: "bold",
       },
       {
-        value: "Tier 5 kp difference",
+        value: "T2 Kills",
         fontWeight: "bold",
       },
       {
-        value: "Dead difference",
+        value: "T3 Kills",
         fontWeight: "bold",
       },
       {
-        value: "Current DKP",
+        value: "T4 Kills",
         fontWeight: "bold",
       },
       {
-        value: "DKP needed",
+        value: "T5 Kills",
         fontWeight: "bold",
       },
       {
-        value: "DKP remaining",
+        value: "Deaths",
         fontWeight: "bold",
       },
       {
-        value: "Dead requirement",
+        value: "RSS Assitance",
         fontWeight: "bold",
       },
     ];
 
-    const DATA_ROWS = dkps.flatMap((dkp) =>
-      Object.values(dkp).map((value) => ({
-        type: typeof value === "number" ? Number : String,
-        value,
-      })),
-    );
+    let dataRows = [];
+
+    for(const item of governors) {
+      dataRows.push({"value":item.id});
+      dataRows.push({"value":item.nickname});
+      dataRows.push({"value":item.power});
+      dataRows.push({"value":item.tier1kp});
+      dataRows.push({"value":item.tier2kp});
+      dataRows.push({"value":item.tier3kp});
+      dataRows.push({"value":item.tier4kp});
+      dataRows.push({"value":item.tier5kp});
+      dataRows.push({"value":item.dead});
+      dataRows.push({"value":item.resourceAssistance});
+    }
 
     const buffer = await writeXlsxFile(
-      [HEADER_ROW, ...chunks(DATA_ROWS, HEADER_ROW.length)],
+      [HEADER_ROW, ...chunks(dataRows, HEADER_ROW.length)],
       {
         buffer: true,
       },

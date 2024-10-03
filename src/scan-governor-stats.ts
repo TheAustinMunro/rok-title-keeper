@@ -7,35 +7,36 @@ import clipboard from "clipboardy";
 import sharp from "sharp";
 import { OEM, PSM, createWorker } from "tesseract.js";
 import { findCutoutPosition } from "./util/find-cutout-position.js";
-import { updateGovernorDKP, upsertGovernorDKP } from "./util/governor-dkp.js";
+import { updateGovernorDKP, upsertGovernorDKP, deleteGovernors } from "./util/governor-dkp.js";
 import { rebootRoK } from "./util/reboot-rok.js";
 
 const ELEMENT_POSITIONS = {
   GOVERNOR_PROFILE_BUTTON: "60 50",
   GOVERNOR_PROFILE_PREVIEW_X_COORDINATE: 690,
-  RANKINGS_BUTTON: "550 670",
+  RANKINGS_BUTTON: "510 746",
+  INDIVIDUAL_POWER_BUTTON: "424 505",
   GOVERNOR_PROFILE_PREVIEW_Y_CLICK_COORDINATES: [285, 390, 490, 590, 605],
   POWER_LABEL: {
-    left: 898,
-    top: 364,
+    left: 884,
+    top: 332,
     width: 180,
     height: 44,
   },
   KILL_POINTS_LABEL: {
-    left: 1114,
-    top: 364,
+    left: 1134,
+    top: 331,
     width: 222,
     height: 44,
   },
   GOVERNOR_ID_LABEL: {
-    left: 770,
-    top: 230,
+    left: 733,
+    top: 197,
     width: 200,
     height: 35,
   },
   KILL_TIER_LABELS: {
     left: 861,
-    top: 459,
+    top: 426,
     width: 129,
     height: 219,
   },
@@ -66,18 +67,24 @@ export const scanGovernorStats = async (
 ) => {
   await rebootRoK(device);
 
+  console.log("Deleting old data")
+  await deleteGovernors(prisma)
+
   // Open governor profile
-  await device.shell("input tap 60 50");
+  console.log("Clicking governor profile:" + ELEMENT_POSITIONS.GOVERNOR_PROFILE_BUTTON)
+  await device.shell(`input tap ${ELEMENT_POSITIONS.GOVERNOR_PROFILE_BUTTON}`);
 
   await setTimeout(ANIMATION_DURATION);
 
-  // Open Rankings
+  // Open RANKINGS_BUTTON Rankings
+  console.log("Clicking RANKINGS_BUTTON:" + ELEMENT_POSITIONS.RANKINGS_BUTTON)
   await device.shell(`input tap ${ELEMENT_POSITIONS.RANKINGS_BUTTON}`);
 
   await setTimeout(ANIMATION_DURATION);
 
-  // Open individual kill rankings
-  await device.shell(`input tap ${ELEMENT_POSITIONS.KILL_RANKINGS_BUTTON}`);
+  // Open individual power rankings
+  console.log("Clicking INDIVIDUAL_POWER_BUTTON:" + ELEMENT_POSITIONS.INDIVIDUAL_POWER_BUTTON)
+  await device.shell(`input tap ${ELEMENT_POSITIONS.INDIVIDUAL_POWER_BUTTON}`);
 
   await setTimeout(ANIMATION_DURATION);
 
@@ -102,6 +109,7 @@ export const scanGovernorStats = async (
     const NEXT_CLICK_POS = i > 4 ? 4 : i;
 
     // Open governor profile
+    console.log("Clicking Governor Profile:" + ELEMENT_POSITIONS.GOVERNOR_PROFILE_PREVIEW_X_COORDINATE + " " + ELEMENT_POSITIONS.GOVERNOR_PROFILE_PREVIEW_Y_CLICK_COORDINATES[NEXT_CLICK_POS])
     await device.shell(
       `input tap ${ELEMENT_POSITIONS.GOVERNOR_PROFILE_PREVIEW_X_COORDINATE} ${ELEMENT_POSITIONS.GOVERNOR_PROFILE_PREVIEW_Y_CLICK_COORDINATES[NEXT_CLICK_POS]}`,
     );
@@ -113,10 +121,17 @@ export const scanGovernorStats = async (
       await device.screenshot(),
     );
 
-    const moreInfoButtonCoordinates = await findCutoutPosition(
-      join(TEMP_ROOT_PATH, "governor-profile.jpg"),
-      join(RESOURCE_ROOT_PATH, "more-info-button.jpg"),
-    );
+    //const moreInfoButtonCoordinates = await findCutoutPosition(
+      //join(TEMP_ROOT_PATH, "governor-profile.jpg"),
+      //join(RESOURCE_ROOT_PATH, "more-info-button.jpg"),
+    //);
+
+    const moreInfoButtonCoordinates = {
+      x: 356,
+      y: 736
+    };
+
+    console.log("moreInfoButtonCoordinates:" + moreInfoButtonCoordinates.x + " " + moreInfoButtonCoordinates.y);
 
     if (!moreInfoButtonCoordinates) {
       fails++;
@@ -137,8 +152,24 @@ export const scanGovernorStats = async (
     );
 
     if (!copyNicknameButtonCoordinates) {
-      throw new Error("Could not locate coordinates for copying nickname.");
+      console.log("Failed to get copyNicknameButtonCoordinates the first time, sleeping for this many milliseconds: " + ANIMATION_DURATION * 3);
+      await setTimeout(ANIMATION_DURATION * 3);
+      console.log("Done Sleeping");
+      const copyNicknameButtonCoordinates = await findCutoutPosition(
+        join(TEMP_ROOT_PATH, "governor-profile.jpg"),
+        join(RESOURCE_ROOT_PATH, "copy-nickname-button.jpg"),
+      );
     }
+
+    if (!copyNicknameButtonCoordinates) {
+      console.log("Coudlnt get governor profile even after sleeping, skipping to next");
+      await device.shell("input swipe 690 605 690 540");
+      await setTimeout(ANIMATION_DURATION);
+      continue;
+    }
+    
+    console.log("About to try to log copyNicknameButtonCoordinates");
+    console.log("copyNicknameButtonCoordinates:" + copyNicknameButtonCoordinates.x + " " + copyNicknameButtonCoordinates.y);
 
     // Copy nickname
     await device.shell(
@@ -148,6 +179,7 @@ export const scanGovernorStats = async (
     await setTimeout(ANIMATION_DURATION);
 
     const nickname = await clipboard.read();
+    console.log("nickname: " + nickname);
 
     const governorProfileToBW = await sharp(
       join(TEMP_ROOT_PATH, "governor-profile.jpg"),
@@ -192,6 +224,7 @@ export const scanGovernorStats = async (
     }
 
     // Open kill statistics
+    console.log("Clicking Open kill statistics: " + killStatisticsButtonCoordinates.x + " " + killStatisticsButtonCoordinates.y)
     await device.shell(
       `input tap ${killStatisticsButtonCoordinates.x} ${killStatisticsButtonCoordinates.y}`,
     );
@@ -222,9 +255,12 @@ export const scanGovernorStats = async (
         .map((kills, index) => [`tier${index + 1}kp`, kills]),
     ) as Record<`tier${1 | 2 | 3 | 4 | 5}kp`, string>;
 
-    // Open More Info
-    const BUTTON_CLICK_AREA_OFFSET = 50;
+    console.log("tierKills:" + tierKills);
 
+    // Open More Info
+    const BUTTON_CLICK_AREA_OFFSET = 0;
+
+    console.log("Clicking more info: " + moreInfoButtonCoordinates.x + " " + moreInfoButtonCoordinates.y)
     await device.shell(
       `input tap ${moreInfoButtonCoordinates.x + BUTTON_CLICK_AREA_OFFSET} ${
         moreInfoButtonCoordinates.y + BUTTON_CLICK_AREA_OFFSET
@@ -245,21 +281,38 @@ export const scanGovernorStats = async (
     });
 
     const statsValues = moreInfoStats.split("\n").filter(Boolean);
+    console.log("statsValues" + statsValues);
 
     const dead = statsValues.at(3);
     const resourceAssistance = statsValues.at(6);
+    console.log("dead" + dead);
+    console.log("resourceAssistance" + resourceAssistance);
 
     // Close More Info
+    console.log("Clicking close more info: " + ELEMENT_POSITIONS.MORE_INFO_CLOSE_BUTTON)
     await device.shell(`input tap ${ELEMENT_POSITIONS.MORE_INFO_CLOSE_BUTTON}`);
 
     await setTimeout(ANIMATION_DURATION);
 
     // Close Governor Profile
+    console.log("Clicking close governor profile: " + ELEMENT_POSITIONS.GOVERNOR_PROFILE_CLOSE_BUTTON)
     await device.shell(
       `input tap ${ELEMENT_POSITIONS.GOVERNOR_PROFILE_CLOSE_BUTTON}`,
     );
 
     await setTimeout(ANIMATION_DURATION);
+
+    console.log("nickname: " + nickname);
+    console.log("power: " + power);
+    console.log("killPoints: " + killPoints);
+    console.log("governorID: " + governorID);
+    console.log("dead: " + dead);
+    console.log("resourceAssistance: " + resourceAssistance);
+    console.log("tierKills.tier1kp: " + tierKills.tier1kp);
+    console.log("tierKills.tier2kp: " + tierKills.tier2kp);
+    console.log("tierKills.tier3kp: " + tierKills.tier3kp);
+    console.log("tierKills.tier4kp: " + tierKills.tier4kp);
+    console.log("tierKills.tier5kp: " + tierKills.tier5kp);
 
     if (
       !nickname ||
@@ -270,6 +323,7 @@ export const scanGovernorStats = async (
       !resourceAssistance ||
       Object.values(tierKills).some((tierKills) => !tierKills)
     ) {
+      console.log("Hitting a continue abc");
       continue;
     }
 
@@ -291,6 +345,7 @@ export const scanGovernorStats = async (
   }
 
   // Close individual kill rankings
+  console.log("Clicking Close individual kill rankings: " + ELEMENT_POSITIONS.CLOSE_KILL_RANKINGS_BUTTON)
   await device.shell(
     `input tap ${ELEMENT_POSITIONS.CLOSE_KILL_RANKINGS_BUTTON}`,
   );
@@ -298,6 +353,7 @@ export const scanGovernorStats = async (
   await setTimeout(ANIMATION_DURATION);
 
   // Open individual kill rankings
+  console.log("Clicking Open individual kill rankings: " + ELEMENT_POSITIONS.KILL_RANKINGS_BUTTON)
   await device.shell(`input tap ${ELEMENT_POSITIONS.KILL_RANKINGS_BUTTON}`);
 
   await worker.terminate();
